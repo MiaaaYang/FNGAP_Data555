@@ -4,6 +4,7 @@ output:
   flexdashboard::flex_dashboard:
     orientation: rows
     vertical_layout: scroll
+    self_contained: false
     navbar:
       - { title: "About the Project & Data", href: "javascript:void(0)", align: right, icon: "fa-info-circle" }
       - { title: "GitHub Repository", href: "https://github.com/MiaaaYang/FNGAP_Data555", align: right, icon: "fa-github" }

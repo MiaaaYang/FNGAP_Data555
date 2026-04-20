@@ -3,7 +3,7 @@
     "path": "~/Desktop/Data555_Capstone/code/Data555_Capstone_Dashboard.Rmd",
     "project_path": "code/Data555_Capstone_Dashboard.Rmd",
     "type": "r_markdown",
-    "hash": "0",
+    "hash": "2376149150",
     "contents": "",
     "dirty": false,
     "created": 1776722413662.0,
@@ -12,15 +12,15 @@
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "9,3",
+        "cursorPosition": "10,3",
         "scrollLine": "0"
     },
     "folds": "",
-    "lastKnownWriteTime": 1776723317,
+    "lastKnownWriteTime": 1776725443,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1776723317229,
+    "last_content_update": 1776725443384,
     "read_only": false,
     "read_only_alternatives": []
 }
