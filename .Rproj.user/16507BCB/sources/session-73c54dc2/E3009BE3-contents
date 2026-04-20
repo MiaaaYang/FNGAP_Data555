@@ -1,0 +1,778 @@
+---
+title: "Women's Empowerment and Nutrition Dashboard For FNGAP"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    navbar:
+      - { title: "About the Project & Data", href: "javascript:void(0)", align: right, icon: "fa-info-circle" }
+      - { title: "GitHub Repository", href: "https://github.com/YOUR-USERNAME/YOUR-REPO-NAME", align: right, icon: "fa-github" }
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(flexdashboard)
+library(tidyverse)
+library(plotly)
+library(haven)
+library(scales)
+library(htmltools)
+library(jsonlite)
+library(leaflet)
+```
+
+```{r cleaning, include=FALSE}
+df_nepal <- read_dta("/Users/ymy/Desktop/Data555_Capstone/data/nepal_clean_final.dta")
+
+df_plot <- df_nepal %>%
+  mutate(
+    score_A_tert = as_factor(score_A_tert),
+    land_own     = as_factor(land_own),
+    occup_4cat   = as_factor(occup_4cat),
+    score_A      = as.numeric(score_A),
+    mddw         = as.numeric(mddw),
+    a7_freq      = as.numeric(a7_freq),
+    a9_daily     = as.numeric(a9_daily),
+    emp_foodprod = as.numeric(emp_foodprod),
+    district     = as_factor(district)
+  ) %>%
+  mutate(
+    score_A_tert = case_when(
+      score_A_tert %in% c("1", "Low",    "low",    "LOW")                  ~ "Low",
+      score_A_tert %in% c("2", "Medium", "Med",    "med", "medium", "MED") ~ "Med",
+      score_A_tert %in% c("3", "High",   "high",   "HIGH")                 ~ "High",
+      TRUE ~ as.character(score_A_tert)
+    ),
+    score_A_tert = factor(score_A_tert, levels = c("Low", "Med", "High")),
+    land_own = case_when(
+      land_own %in% c("1", "Yes", "yes", "Y") ~ "Yes",
+      land_own %in% c("0", "No",  "no",  "N") ~ "No",
+      TRUE ~ as.character(land_own)
+    ),
+    # A7+A9 combined: frequent plant-based AND frequent animal-sourced
+    a7a9_both = as.numeric(a7_freq == 1 & a9_daily == 1)
+  )
+```
+
+Row {data-height=550}
+-------------------------------------
+
+### 1 Tertile Empowerment Score Distribution {data-width=300}
+
+```{r tertile-plot}
+tert_df <- df_plot %>%
+  filter(!is.na(score_A_tert)) %>%
+  count(score_A_tert) %>%
+  mutate(percent = n / sum(n))
+
+plot_ly() %>%
+  add_trace(
+    x = tert_df$score_A_tert, y = tert_df$n,
+    type = "bar", name = "Count",
+    marker = list(color = "#7BC96F", line = list(color = "black", width = 1)),
+    text = paste0("Tertile: ", tert_df$score_A_tert, "<br>Count: ", tert_df$n),
+    hoverinfo = "text", visible = TRUE
+  ) %>%
+  add_trace(
+    x = tert_df$score_A_tert, y = tert_df$percent,
+    type = "bar", name = "Percent",
+    marker = list(color = "#7BC96F", line = list(color = "black", width = 1)),
+    text = paste0("Tertile: ", tert_df$score_A_tert,
+                  "<br>Percent: ", scales::percent(tert_df$percent, accuracy = 0.1)),
+    hoverinfo = "text", visible = FALSE
+  ) %>%
+  layout(
+    title      = list(text = "Empowerment Score A Distribution in Tertile",
+                      font = list(size = 15), y = 0.97),
+    xaxis = list(title = "Empowerment Score Tertile"),
+    yaxis      = list(title = "Count"),
+    height     = 400,
+    showlegend = FALSE,
+    margin     = list(l = 55, r = 20, b = 100, t = 40),
+    updatemenus = list(list(
+      type = "buttons", direction = "right", x = 0.5, y = -0.40, showactive = TRUE,
+      buttons = list(
+        list(label = "Count",
+             method = "update",
+             args   = list(list(visible = list(TRUE, FALSE)),
+                           list(yaxis = list(title = "Count", tickformat = "")))),
+        list(label = "Percent",
+             method = "update",
+             args   = list(list(visible = list(FALSE, TRUE)),
+                           list(yaxis = list(title = "Percent", tickformat = ".0%"))))
+      )
+    ))
+  )
+```
+
+### 2. Score Distribution by Outcome {data-width=420}
+
+```{r diet-outcome-plot}
+# ── Layout: x = Score A Tertile (Low/Med/High)
+#            grouped bars = E- (0) and E+ (1) for the selected outcome
+#            Outcome selector: 4 buttons (MDDW, A7, A9, A7+A9)
+#            Count / Percent toggle
+# ── Total traces = 8  (E- and E+ for each of the 4 outcomes)
+
+tert_levels <- c("Low", "Med", "High")
+
+# Helper: counts & proportions of 0/1 by tertile for one binary variable
+make_freq <- function(var) {
+  df_plot %>%
+    filter(!is.na(score_A_tert), !is.na(!!sym(var))) %>%
+    mutate(score_A_tert = factor(as.character(score_A_tert),
+                                 levels = tert_levels)) %>%
+    group_by(score_A_tert) %>%
+    summarise(
+      n_pos = sum(!!sym(var) == 1, na.rm = TRUE),
+      n_neg = sum(!!sym(var) == 0, na.rm = TRUE),
+      tot   = n(),
+      .groups = "drop"
+    ) %>%
+    mutate(p_pos = n_pos / tot,
+           p_neg = n_neg / tot) %>%
+    arrange(score_A_tert)
+}
+
+# 4 outcomes: variable name, display label, colours for E+ and E-
+outcomes <- list(
+  list(var = "mddw",      label = "MDDW",
+       col_pos = "#5C8DBF", col_neg = "#B0C9E8"),
+  list(var = "a7_freq",   label = "A7 (Plant-Based Food)",
+       col_pos = "#4CAF50", col_neg = "#C8E6C9"),
+  list(var = "a9_daily",  label = "A9 (Animal-Sourced Food)",
+       col_pos = "#EF5350", col_neg = "#FFCDD2"),
+  list(var = "a7a9_both", label = "A7+A9 (Plant & Animal)",
+       col_pos = "#FFA726", col_neg = "#FFE0B2")
+)
+
+# Pre-compute data for all 4 outcomes
+all_dats <- lapply(outcomes, function(oc) make_freq(oc$var))
+
+# ── Build plot: 8 traces, only outcome-1 visible at start ──────────────────
+p_diet <- plot_ly()
+
+for (i in seq_along(outcomes)) {
+  oc  <- outcomes[[i]]
+  d   <- all_dats[[i]]
+  vis <- (i == 1)
+
+  # E+ trace  (binary = 1)
+  p_diet <- p_diet %>%
+    add_trace(
+      x         = d$score_A_tert,
+      y         = d$n_pos,
+      type      = "bar",
+      name      = "E+",
+      legendgroup = "eplus",
+      showlegend  = (i == 1),
+      marker    = list(color = oc$col_pos,
+                       line  = list(color = "black", width = 1)),
+      text      = paste0("E+  |  Tertile: ", d$score_A_tert,
+                         "<br>Count: ", d$n_pos,
+                         "  (", round(d$p_pos * 100, 1), "%)"),
+      hoverinfo = "text",
+      visible   = vis
+    )
+
+  # E- trace  (binary = 0)
+  p_diet <- p_diet %>%
+    add_trace(
+      x         = d$score_A_tert,
+      y         = d$n_neg,
+      type      = "bar",
+      name      = "E-",
+      legendgroup = "eminus",
+      showlegend  = (i == 1),
+      marker    = list(color = oc$col_neg,
+                       line  = list(color = "black", width = 1)),
+      text      = paste0("E-  |  Tertile: ", d$score_A_tert,
+                         "<br>Count: ", d$n_neg,
+                         "  (", round(d$p_neg * 100, 1), "%)"),
+      hoverinfo = "text",
+      visible   = vis
+    )
+}
+
+# ── Visibility helper: show only the 2 traces for outcome i ────────────────
+n_out    <- length(outcomes)   # 4
+n_traces <- n_out * 2          # 8
+
+make_vis <- function(active_i) {
+  v <- rep(FALSE, n_traces)
+  v[c(active_i * 2 - 1, active_i * 2)] <- TRUE
+  as.list(v)
+}
+
+# ── Outcome-selector buttons (top row) ─────────────────────────────────────
+outcome_btns <- lapply(seq_along(outcomes), function(i) {
+  list(
+    label  = outcomes[[i]]$label,
+    method = "update",
+    args   = list(
+      list(visible = make_vis(i)),
+      list(title   = list(
+             text = paste0("Empowerment Score Tertile × ", outcomes[[i]]$label),
+             font = list(size = 13), y = 0.97),
+           yaxis   = list(title = "Count", tickformat = ""))
+    )
+  )
+})
+
+# ── Count / Percent toggle (second row) ─────────────────────────────────────
+# We need y and text for ALL 8 traces for each mode
+cnt_y <- unlist(lapply(all_dats, function(d) list(d$n_pos, d$n_neg)),
+                recursive = FALSE)
+pct_y <- unlist(lapply(all_dats, function(d) list(d$p_pos, d$p_neg)),
+                recursive = FALSE)
+
+cnt_txt <- unlist(lapply(seq_along(outcomes), function(i) {
+  d <- all_dats[[i]]
+  list(
+    paste0("E+  |  Tertile: ", d$score_A_tert,
+           "<br>Count: ", d$n_pos, "  (", round(d$p_pos*100,1), "%)"),
+    paste0("E-  |  Tertile: ", d$score_A_tert,
+           "<br>Count: ", d$n_neg, "  (", round(d$p_neg*100,1), "%)")
+  )
+}), recursive = FALSE)
+
+pct_txt <- unlist(lapply(seq_along(outcomes), function(i) {
+  d <- all_dats[[i]]
+  list(
+    paste0("E+  |  Tertile: ", d$score_A_tert,
+           "<br>Pct: ", round(d$p_pos*100,1), "%"),
+    paste0("E-  |  Tertile: ", d$score_A_tert,
+           "<br>Pct: ", round(d$p_neg*100,1), "%")
+  )
+}), recursive = FALSE)
+
+p_diet %>%
+  layout(
+    title   = list(text = paste0("Empowerment Score Tertile × ", outcomes[[1]]$label),
+                   font = list(size = 13), y = 0.97),
+    barmode = "group",
+    xaxis   = list(title = "Empowerment Score Tertile"),
+    yaxis   = list(title = "Count"),
+    height  = 450,
+    legend  = list(orientation = "h", x = 0.35, y = -0.06,
+                   title = list(text = "")),
+    margin  = list(l = 50, r = 20, b = 160, t = 45),
+    updatemenus = list(
+      # ── Row 1: outcome selector ───────────────────────────────────────────
+      list(
+        type       = "buttons",
+        direction  = "right",
+        x          = -0.16, xanchor = "left",
+        y          = -0.30, yanchor = "top",
+        showactive = TRUE,
+        buttons    = outcome_btns
+      ),
+      # ── Row 2: Count / Percent ────────────────────────────────────────────
+      list(
+        type       = "buttons",
+        direction  = "right",
+        x          = -0.16, xanchor = "left",
+        y          = -0.46, yanchor = "top",
+        showactive = TRUE,
+        buttons    = list(
+          list(label  = "Count",
+               method = "update",
+               args   = list(list(y = cnt_y, text = cnt_txt),
+                             list(yaxis = list(title = "Count",
+                                              tickformat = "")))),
+          list(label  = "Percent",
+               method = "update",
+               args   = list(list(y = pct_y, text = pct_txt),
+                             list(yaxis = list(title = "Proportion",
+                                              tickformat = ".0%"))))
+        )
+      )
+    )
+  )
+```
+
+### 3. Land Ownership by Occupations {data-width=420}
+
+```{r land-plot}
+land_df <- df_plot %>%
+  filter(!is.na(occup_4cat), !is.na(land_own)) %>%
+  count(occup_4cat, land_own) %>%
+  group_by(occup_4cat) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(occup_4cat = as.character(occup_4cat),
+         land_own   = as.character(land_own))
+
+occ_levels <- sort(unique(land_df$occup_4cat))
+
+land_df_full <- expand.grid(
+  occup_4cat = occ_levels,
+  land_own   = c("No", "Yes"),
+  stringsAsFactors = FALSE
+) %>%
+  left_join(land_df, by = c("occup_4cat", "land_own")) %>%
+  mutate(n = replace_na(n, 0), prop = replace_na(prop, 0))
+
+no_sub  <- land_df_full %>% filter(land_own == "No")  %>% arrange(occup_4cat)
+yes_sub <- land_df_full %>% filter(land_own == "Yes") %>% arrange(occup_4cat)
+
+no_counts  <- no_sub$n;    yes_counts <- yes_sub$n
+no_props   <- no_sub$prop; yes_props  <- yes_sub$prop
+
+p_land <- plot_ly() %>%
+  add_trace(
+    x = occ_levels, y = no_counts,
+    type = "bar", name = "No",
+    marker = list(color = "#FF8A80", line = list(color = "black", width = 1)),
+    text = paste0("Occupation: ", occ_levels, "<br>Land: No<br>Count: ", no_counts),
+    hoverinfo = "text"
+  ) %>%
+  add_trace(
+    x = occ_levels, y = yes_counts,
+    type = "bar", name = "Yes",
+    marker = list(color = "#40BCD8", line = list(color = "black", width = 1)),
+    text = paste0("Occupation: ", occ_levels, "<br>Land: Yes<br>Count: ", yes_counts),
+    hoverinfo = "text"
+  ) %>%
+  layout(
+    title      = list(text = "Land Ownership by Selected Occupation",
+                      font = list(size = 13), y = 0.97),
+    barmode    = "group",
+    xaxis = list(title = "Occupations", tickangle = 15),
+    yaxis      = list(title = "Count"),
+    height     = 400,
+    legend     = list(title = list(text = "Land"),
+                      orientation = "h", x = 0.3, y = -0.32),
+    margin     = list(l = 50, r = 15, b = 100, t = 40),
+    updatemenus = list(list(
+      type = "buttons", direction = "right", x = 0.75, y = -0.45, showactive = TRUE,
+      buttons = list(
+        list(
+          label  = "Count",
+          method = "update",
+          args   = list(
+            list(y    = list(no_counts, yes_counts),
+                 text = list(
+                   paste0("Occupation: ", occ_levels, "<br>Land: No<br>Count: ",  no_counts),
+                   paste0("Occupation: ", occ_levels, "<br>Land: Yes<br>Count: ", yes_counts)
+                 )),
+            list(yaxis = list(title = "Count", tickformat = ""))
+          )
+        ),
+        list(
+          label  = "Percent within occupation",
+          method = "update",
+          args   = list(
+            list(y    = list(no_props, yes_props),
+                 text = list(
+                   paste0("Occupation: ", occ_levels, "<br>Land: No<br>Percent: ",
+                          scales::percent(no_props,  accuracy = 0.1)),
+                   paste0("Occupation: ", occ_levels, "<br>Land: Yes<br>Percent: ",
+                          scales::percent(yes_props, accuracy = 0.1))
+                 )),
+            list(yaxis = list(title = "Percent", tickformat = ".0%"))
+          )
+        )
+      )
+    ))
+  )
+
+occ_json     <- jsonlite::toJSON(occ_levels, auto_unbox = FALSE)
+no_cnt_json  <- jsonlite::toJSON(no_counts)
+yes_cnt_json <- jsonlite::toJSON(yes_counts)
+no_pct_json  <- jsonlite::toJSON(no_props)
+yes_pct_json <- jsonlite::toJSON(yes_props)
+
+checkbox_ui <- tags$div(
+  style = "font-size:13px; padding: 4px 0 6px 0;",
+  tags$strong("Select Occupations:"),
+  tags$div(
+    id    = "occ-checkboxes",
+    style = "display:flex; flex-wrap:wrap; gap:5px 16px; margin-top:5px;",
+    lapply(occ_levels, function(occ) {
+      tags$label(
+        style = "cursor:pointer; user-select:none;",
+        tags$input(type = "checkbox", value = occ, checked = NA,
+                   onchange = "filterLandOcc()"),
+        paste0(" ", occ)
+      )
+    })
+  )
+)
+
+js_code <- tags$script(HTML(paste0('
+var _OCC  = ', occ_json, ';
+var _NOCN = ', no_cnt_json,  '; var _YECN = ', yes_cnt_json, ';
+var _NOPC = ', no_pct_json,  '; var _YEPC = ', yes_pct_json, ';
+
+function filterLandOcc() {
+  var boxes    = document.querySelectorAll("#occ-checkboxes input");
+  var selected = Array.from(boxes).filter(b => b.checked).map(b => b.value);
+  var idx      = _OCC.map((o,i) => selected.includes(o) ? i : -1).filter(i => i >= 0);
+  var xV   = idx.map(i => _OCC[i]);
+  var noCn = idx.map(i => _NOCN[i]); var yeCn = idx.map(i => _YECN[i]);
+  var noPc = idx.map(i => _NOPC[i]); var yePc = idx.map(i => _YEPC[i]);
+  var plots = document.querySelectorAll(".js-plotly-plot");
+  var gd    = plots[plots.length - 1];
+  if (!gd) return;
+  var isPercent = gd.layout && gd.layout.yaxis &&
+                  (gd.layout.yaxis.title === "Percent" ||
+                   (gd.layout.yaxis.title && gd.layout.yaxis.title.text === "Percent"));
+  var noY = isPercent ? noPc : noCn;
+  var yeY = isPercent ? yePc : yeCn;
+  var pctFmt = function(v) { return (v * 100).toFixed(1) + "%"; };
+  var noTxt = xV.map((o,j) => "Occupation: "+o+"<br>Land: No<br>"+
+    (isPercent ? "Percent: "+pctFmt(noY[j]) : "Count: "+noY[j]));
+  var yeTxt = xV.map((o,j) => "Occupation: "+o+"<br>Land: Yes<br>"+
+    (isPercent ? "Percent: "+pctFmt(yeY[j]) : "Count: "+yeY[j]));
+  Plotly.restyle(gd, {x:[xV], y:[noY], text:[noTxt]}, [0]);
+  Plotly.restyle(gd, {x:[xV], y:[yeY], text:[yeTxt]}, [1]);
+}
+')))
+
+tagList(checkbox_ui, p_land, js_code)
+```
+
+Row {data-height=560}
+-------------------------------------
+
+### 3. Score Information by District {data-width=500}
+
+```{r score-map}
+# ── District-level score_A summary ──────────────────────────────────────────
+dist_score <- df_plot %>%
+  mutate(district = as.character(district)) %>%
+  filter(!is.na(district), !is.na(score_A)) %>%
+  group_by(district) %>%
+  summarise(
+    n      = n(),
+    avg    = round(mean(score_A,              na.rm = TRUE), 2),
+    median = round(median(score_A,            na.rm = TRUE), 2),
+    q1     = round(quantile(score_A, 0.25,    na.rm = TRUE), 2),
+    q3     = round(quantile(score_A, 0.75,    na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+
+# Known district centroids (Siraha, Saptari, Udaypur — eastern Nepal)
+district_coords <- tibble::tribble(
+  ~district,   ~lat,    ~lng,
+  "Siraha",    26.65,   86.21,
+  "Saptari",   26.63,   86.72,
+  "Udaypur",   26.95,   86.53
+)
+
+map_score <- dist_score %>%
+  left_join(district_coords, by = "district") %>%
+  filter(!is.na(lat))
+
+pal_score <- colorNumeric(
+  palette = c("#AED6F1", "#1B4F72"),
+  domain  = range(map_score$avg, na.rm = TRUE)
+)
+
+popup_score <- paste0(
+  "<b style='font-size:14px;'>", map_score$district, "</b><br>",
+  "<hr style='margin:4px 0;'>",
+  "<b>n</b> = ", map_score$n, "<br>",
+  "<b>Mean&nbsp;&nbsp;&nbsp;</b>: ", map_score$avg,    "<br>",
+  "<b>Median</b>: ", map_score$median, "<br>",
+  "<b>Q1&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</b>: ", map_score$q1, "<br>",
+  "<b>Q3&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</b>: ", map_score$q3
+)
+
+leaflet(map_score) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = 86.5, lat = 26.8, zoom = 9) %>%
+  addCircleMarkers(
+    lng         = ~lng,
+    lat         = ~lat,
+    radius      = ~scales::rescale(n, to = c(14, 30)),
+    fillColor   = ~pal_score(avg),
+    color       = "#1B4F72",
+    fillOpacity = 0.85,
+    weight      = 2,
+    popup       = popup_score,
+    label       = ~paste0(district, " (click for details)"),
+    labelOptions = labelOptions(
+      noHide    = TRUE,
+      direction = "top",
+      style     = list("font-weight" = "bold", "font-size" = "12px",
+                       "background"  = "rgba(255,255,255,0.8)",
+                       "border"      = "1px solid #ccc",
+                       "padding"     = "3px 6px")
+    )
+  ) %>%
+  addLegend(
+    position  = "bottomright",
+    pal       = pal_score,
+    values    = ~avg,
+    title     = "Mean Score A",
+    opacity   = 0.85
+  )
+```
+
+### 4. Food Production Decision-Making by District {data-width=500}
+
+```{r food-prod-map}
+# ── District-level emp_foodprod summary ──────────────────────────────────────
+dist_fprod <- df_plot %>%
+  mutate(district = as.character(district)) %>%
+  filter(!is.na(district), !is.na(emp_foodprod)) %>%
+  group_by(district) %>%
+  summarise(
+    n       = n(),
+    n_yes   = sum(emp_foodprod == 1, na.rm = TRUE),
+    pct_yes = round(mean(emp_foodprod == 1, na.rm = TRUE) * 100, 1),
+    .groups = "drop"
+  )
+
+district_coords <- tibble::tribble(
+  ~district,   ~lat,    ~lng,
+  "Siraha",    26.65,   86.21,
+  "Saptari",   26.63,   86.72,
+  "Udaypur",   26.95,   86.53
+)
+
+map_fprod <- dist_fprod %>%
+  left_join(district_coords, by = "district") %>%
+  filter(!is.na(lat))
+
+pal_fprod <- colorNumeric(
+  palette = c("#FEF9C3", "#E65100"),
+  domain  = c(0, 100)
+)
+
+popup_fprod <- paste0(
+  "<b style='font-size:14px;'>", map_fprod$district, "</b><br>",
+  "<hr style='margin:4px 0;'>",
+  "<b>n</b> = ", map_fprod$n, "<br>",
+  "Women making food production decisions:<br>",
+  "<b style='font-size:16px;'>", map_fprod$pct_yes, "%</b>",
+  " (n = ", map_fprod$n_yes, ")"
+)
+
+leaflet(map_fprod) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = 86.5, lat = 26.8, zoom = 9) %>%
+  addCircleMarkers(
+    lng         = ~lng,
+    lat         = ~lat,
+    radius      = ~scales::rescale(n, to = c(14, 30)),
+    fillColor   = ~pal_fprod(pct_yes),
+    color       = "#5D4037",
+    fillOpacity = 0.85,
+    weight      = 2,
+    popup       = popup_fprod,
+    label       = ~paste0(district, ": ", pct_yes, "%"),
+    labelOptions = labelOptions(
+      noHide    = TRUE,
+      direction = "top",
+      style     = list("font-weight" = "bold", "font-size" = "12px",
+                       "background"  = "rgba(255,255,255,0.8)",
+                       "border"      = "1px solid #ccc",
+                       "padding"     = "3px 6px")
+    )
+  ) %>%
+  addLegend(
+    position  = "bottomright",
+    pal       = pal_fprod,
+    values    = ~pct_yes,
+    title     = "% Women Making<br>Food Prod. Decisions",
+    labFormat = labelFormat(suffix = "%"),
+    opacity   = 0.85
+  )
+```
+
+Row {data-height=110}
+-------------------------------------
+
+### {.no-title}
+
+```{r importance-and-about}
+htmltools::tagList(
+
+  # ── "Why This Matters" navy banner ──────────────────────────────────────────
+  htmltools::div(
+    style = paste(
+      "background:#1B4F72; color:white; border-radius:6px;",
+      "padding:14px 22px; font-size:13.5px; line-height:1.7;",
+      "margin-bottom:10px;"
+    ),
+    htmltools::tags$strong("Why This Dashboard Matters: "),
+    paste(
+      "Poor nutrition — including high rates of anaemia among women and undernutrition",
+      "among children — remains a critical public health challenge in Nepal, and",
+      "understanding how women's empowerment and land ownership shape dietary diversity",
+      "is essential to designing effective interventions."
+    ),
+    " ",
+    paste(
+      "This dashboard enables FNGAP program staff and researchers to interactively",
+      "explore structural determinants of nutrition across Siraha, Saptari, and Udaypur,",
+      "supporting evidence-based decisions to improve food security for beneficiary families."
+    )
+  ),
+
+  # ── "Click here" inline trigger ─────────────────────────────────────────────
+  htmltools::tags$p(
+    style = paste(
+      "font-size:13px; color:#1B4F72; margin:0; cursor:pointer;",
+      "display:inline-flex; align-items:center; gap:6px; font-weight:600;"
+    ),
+    onclick = "toggleAbout()",
+    htmltools::HTML("&#x2139;&#xFE0F;"),
+    htmltools::tags$span(
+      style = "text-decoration:underline;",
+      "Click here to learn more About the Project & Data"
+    ),
+    htmltools::tags$span(id = "about-arrow", htmltools::HTML("&#x25BC;"),
+                         style = "font-size:11px;")
+  ),
+
+  # ── Modal overlay ────────────────────────────────────────────────────────────
+  htmltools::tags$div(
+    id = "about-overlay",
+    style = paste(
+      "display:none; position:fixed; top:0; left:0; width:100%; height:100%;",
+      "background:rgba(0,0,0,0.50); z-index:99999;",
+      "align-items:flex-start; justify-content:center;",
+      "padding-top:55px; box-sizing:border-box;"
+    ),
+    onclick = "if(event.target===this)toggleAbout()",
+
+    htmltools::tags$div(
+      style = paste(
+        "background:white; border-radius:10px; max-width:740px; width:93%;",
+        "max-height:82vh; overflow-y:auto; padding:28px 32px;",
+        "position:relative; box-shadow:0 8px 36px rgba(0,0,0,0.28);"
+      ),
+
+      htmltools::tags$button(
+        onclick = "toggleAbout()",
+        style = paste(
+          "position:absolute; top:12px; right:16px; background:none;",
+          "border:none; font-size:22px; cursor:pointer; color:#666;"
+        ),
+        htmltools::HTML("&#x2715;")
+      ),
+
+      htmltools::tags$h3(
+        style = "color:#1B4F72; margin:0 0 4px; font-size:19px;",
+        "About the Project & Data"
+      ),
+      htmltools::tags$p(
+        style = paste(
+          "font-size:13px; color:#666; margin:0 0 18px;",
+          "border-bottom:1px solid #e0e0e0; padding-bottom:12px;"
+        ),
+        "Women's Empowerment and Nutrition — FNGAP Nepal Outcome Evaluation"
+      ),
+
+      htmltools::tags$table(
+        style = "width:100%; border-collapse:collapse; font-size:14px; line-height:1.65;",
+        htmltools::tags$tr(
+          style = "border-bottom:1px solid #eee;",
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; width:160px; vertical-align:top;", "Data Source"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            "FNGAP Nepal Outcome Evaluation Survey, implemented by CARE Nepal and the National Farmers Group Federation (NFGF) in Madhesh Province, Nepal.")
+        ),
+        htmltools::tags$tr(
+          style = "border-bottom:1px solid #eee; background:#f7f9fc;",
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; vertical-align:top;", "Sample Size"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            htmltools::HTML("525 FNGAP beneficiary households via multistage systematic random sampling across 10 municipalities; after excluding male respondents and one age outlier, <strong>516 women</strong> were included in analyses."))
+        ),
+        htmltools::tags$tr(
+          style = "border-bottom:1px solid #eee;",
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; vertical-align:top;", "Data Collection"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            htmltools::HTML("Cross-sectional household survey. Dietary diversity was measured using three indicators: <strong>A7</strong> (plant-based food consumption), <strong>A9</strong> (animal-sourced food consumption), and a composite <strong>A7+A9</strong> measure."))
+        ),
+        htmltools::tags$tr(
+          style = "border-bottom:1px solid #eee; background:#f7f9fc;",
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; vertical-align:top;", "Study Population"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            "Women in FNGAP beneficiary households. Women's empowerment (Score A) and household land ownership are the primary exposures; dietary diversity is the outcome of interest.")
+        ),
+        htmltools::tags$tr(
+          style = "border-bottom:1px solid #eee;",
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; vertical-align:top;", "Location"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            htmltools::HTML("<strong>Siraha</strong>, <strong>Saptari</strong>, and <strong>Udaypur</strong> districts, Madhesh Province, Nepal."))
+        ),
+        htmltools::tags$tr(
+          style = "border-bottom:1px solid #eee; background:#f7f9fc;",
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; vertical-align:top;", "Analysis"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            "Crude and adjusted logistic regression models assessed associations between land ownership / empowerment score and dietary diversity outcomes, adjusting for primary occupation, district, and household size. Conducted in R.")
+        ),
+        htmltools::tags$tr(
+          htmltools::tags$td(style = "padding:9px 12px; font-weight:700; color:#1B4F72; vertical-align:top;", "Confidentiality"),
+          htmltools::tags$td(style = "padding:9px 12px; vertical-align:top;",
+            "This dataset is confidential and not publicly available. Source data are not included in this repository.")
+        )
+      ),
+
+      htmltools::tags$p(
+        style = "margin:16px 0 0; font-size:12px; color:#999; border-top:1px solid #eee; padding-top:11px;",
+        "Dashboard developed by Mia Yang — Department of Epidemiology, Rollins School of Public Health, Emory University. FNGAP / CARE Nepal / NFGF."
+      )
+    )
+  ),
+
+  # ── JavaScript ───────────────────────────────────────────────────────────────
+  htmltools::tags$script(htmltools::HTML('
+    /* Core toggle function — used by both triggers */
+    function toggleAbout() {
+      var el    = document.getElementById("about-overlay");
+      var arrow = document.getElementById("about-arrow");
+      if (!el) return;
+      var opening = (el.style.display === "none" || el.style.display === "");
+      el.style.display        = opening ? "flex" : "none";
+      document.body.style.overflow = opening ? "hidden" : "";
+      if (arrow) arrow.innerHTML  = opening ? "&#x25B2;" : "&#x25BC;";
+    }
+
+    /* Hook navbar link — runs repeatedly via MutationObserver until found */
+    function hookNavbarLink() {
+      var links = document.querySelectorAll(".navbar-nav a, .navbar a");
+      var hooked = false;
+      links.forEach(function(link) {
+        if (link.textContent.indexOf("About") !== -1 && !link.dataset.hooked) {
+          link.dataset.hooked = "1";
+          link.setAttribute("href", "javascript:void(0)");
+          link.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleAbout();
+          });
+          hooked = true;
+        }
+      });
+      return hooked;
+    }
+
+    /* Try immediately, then watch DOM for navbar to appear */
+    if (!hookNavbarLink()) {
+      var observer = new MutationObserver(function(mutations, obs) {
+        if (hookNavbarLink()) obs.disconnect();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    /* Also retry on DOMContentLoaded and window load as fallbacks */
+    document.addEventListener("DOMContentLoaded", hookNavbarLink);
+    window.addEventListener("load", hookNavbarLink);
+
+    /* Close on Escape */
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        var el = document.getElementById("about-overlay");
+        if (el && el.style.display === "flex") toggleAbout();
+      }
+    });
+  '))
+
+) # end tagList
+```

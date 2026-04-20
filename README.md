@@ -2,7 +2,7 @@
 
 **Author:** Mia Yang | Department of Epidemiology, Rollins School of Public Health, Emory University  
 **Partners:** Filling the Nutrition Gap (FNGAP), CARE Nepal, National Farmers Group Federation (NFGF)  
-**Live Dashboard:** [Click here to view](https://MiaaaYang.github.io/FNGAP_Data555/)
+**Live Dashboard:** [Click here to view](https://raw.githubusercontent.com/MiaaaYang/FNGAP_Data555/refs/heads/main/index.html)
 
 ---
 
