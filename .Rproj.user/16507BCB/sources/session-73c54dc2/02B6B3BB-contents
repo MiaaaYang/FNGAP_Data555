@@ -58,17 +58,8 @@ install.packages(c(
 ))
 ```
 
-### Folder setup
 
-Place the confidential data file at `data/nepal_clean_final.dta` relative to the project root:
 
-```
-project-root/
-├── code/
-│   └── Data555_Capstone_Dashboard.Rmd
-└── data/
-    └── nepal_clean_final.dta     ← place file here
-```
 
 ### Steps
 

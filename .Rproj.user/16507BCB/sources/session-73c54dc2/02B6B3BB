@@ -3,24 +3,24 @@
     "path": "~/Desktop/Data555_Capstone/README.md",
     "project_path": "README.md",
     "type": "markdown",
-    "hash": "2691932169",
+    "hash": "3952739237",
     "contents": "",
     "dirty": false,
     "created": 1776723500365.0,
-    "source_on_save": false,
+    "source_on_save": true,
     "relative_order": 2,
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "4,83",
-        "scrollLine": "0"
+        "cursorPosition": "61,0",
+        "scrollLine": "50"
     },
     "folds": "",
-    "lastKnownWriteTime": 1776725599,
+    "lastKnownWriteTime": 1776726380,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1776725599533,
+    "last_content_update": 1776726380755,
     "read_only": false,
     "read_only_alternatives": []
 }
